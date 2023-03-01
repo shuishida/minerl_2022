@@ -1,4 +1,4 @@
-# NeuRIPS 2022: MineRL BASALT Challenge submission
+# NeurIPS 2022: MineRL BASALT Challenge submission
 
 Team Voggite: Shu Ishida, João F. Henriques (Visual Geometry Group, University of Oxford)
 
