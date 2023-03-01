@@ -1,4 +1,10 @@
 # Train one model for each task
+import os
+
+import sys
+
+sys.path.append(".")
+
 from scripts.process_dataset import precompute_vpt_embedding_for_task
 from src.minerl.setup import RLSetup
 from const import TASK_CAVE, TASK_WATERFALL, TASK_ANIMAL, TASK_HOUSE

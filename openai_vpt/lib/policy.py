@@ -2,7 +2,9 @@ from copy import deepcopy
 from typing import Dict, Optional
 
 import numpy as np
+import torch
 import torch as th
+from einops import rearrange
 from gym3.types import DictType
 from torch import nn
 from torch.nn import functional as F
@@ -98,7 +100,7 @@ class MinecraftPolicy(nn.Module):
         impala_chans=(16, 32, 32),
         obs_processing_width=256,
         hidsize=512,
-        single_output=False,  # True if we don't need separate outputs for action/value outputs
+        # single_output=False,  # True if we don't need separate outputs for action/value outputs
         img_shape=None,
         scale_input_img=True,
         only_img_input=False,
@@ -133,7 +135,7 @@ class MinecraftPolicy(nn.Module):
 
         active_reward_monitors = active_reward_monitors or {}
 
-        self.single_output = single_output
+        # self.single_output = single_output
 
         chans = tuple(int(impala_width * c) for c in impala_chans)
         self.hidsize = hidsize
@@ -207,13 +209,7 @@ class MinecraftPolicy(nn.Module):
             state_out = state_in
 
         x = F.relu(x, inplace=False)
-
-        x = self.lastlayer(x)
-        x = self.final_ln(x)
-        pi_latent = vf_latent = x
-        if self.single_output:
-            return pi_latent, state_out
-        return (pi_latent, vf_latent), state_out
+        return x, state_out
 
     def initial_state(self, batchsize):
         if self.recurrent_layer:
@@ -226,11 +222,15 @@ class MinecraftAgentPolicy(nn.Module):
     def __init__(self, action_space, policy_kwargs, pi_head_kwargs):
         super().__init__()
         self.net = MinecraftPolicy(**policy_kwargs)
+        self.state_dim = self.net.output_latent_size()
 
         self.action_space = action_space
+        self.n_options = 100
+        self.state_activation = "binned_tanh"
+        self.pi_head_kwargs = pi_head_kwargs
 
-        self.value_head = self.make_value_head(self.net.output_latent_size())
-        self.pi_head = self.make_action_head(self.net.output_latent_size(), **pi_head_kwargs)
+        self.value_head = self.make_value_head(self.state_dim)
+        self.pi_head = self.make_action_head(self.state_dim, **pi_head_kwargs)
 
     def make_value_head(self, v_out_size: int, norm_type: str = "ewma", norm_kwargs: Optional[Dict] = None):
         return ScaledMSEHead(v_out_size, 1, norm_type=norm_type, norm_kwargs=norm_kwargs)
@@ -259,22 +259,33 @@ class MinecraftAgentPolicy(nn.Module):
         else:
             mask = None
 
-        (pi_h, v_h), state_out = self.net(obs, state_in, context={"first": first})
+        state_emb, state_out = self.net(obs, state_in, context={"first": first})
 
-        pi_logits = self.pi_head(pi_h, mask=mask)
-        vpred = self.value_head(v_h)
+        x = self.net.lastlayer(state_emb)
+        x = self.net.final_ln(x)
 
-        return (pi_logits, vpred, None), state_out
+        pi_logits = self.pi_head(x, mask=mask)
+        vpred = self.value_head(x)
+
+        return (pi_logits, vpred, state_emb), state_out
+
+    def pi_v(self, states):
+        x = self.net.lastlayer(states)
+        x = self.net.final_ln(x)
+
+        pi_logits = self.pi_head(x)
+        vpred = self.value_head(x)
+
+        return pi_logits, vpred
 
     def get_logprob_of_action(self, pd, action):
         """
         Get logprob of taking action `action` given probability distribution
         (see `get_gradient_for_action` to get this distribution)
         """
-        ac = tree_map(lambda x: x.unsqueeze(1), action)
-        log_prob = self.pi_head.logprob(ac, pd)
+        log_prob = self.pi_head.logprob(action, pd)
         assert not th.isnan(log_prob).any()
-        return log_prob[:, 0]
+        return log_prob
 
     def get_kl_of_action_dists(self, pd1, pd2):
         """
@@ -282,7 +293,7 @@ class MinecraftAgentPolicy(nn.Module):
         """
         return self.pi_head.kl_divergence(pd1, pd2)
 
-    def get_output_for_observation(self, obs, state_in, first):
+    def take_step(self, obs, first, state_in):
         """
         Return gradient-enabled outputs for given observation.
 
@@ -298,40 +309,32 @@ class MinecraftAgentPolicy(nn.Module):
         obs = tree_map(lambda x: x.unsqueeze(1), obs)
         first = first.unsqueeze(1)
 
-        (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)
-
-        return pd, self.value_head.denormalize(vpred)[:, 0], state_out
+        (pd, vpred, state_emb), state_out = self(obs=obs, first=first, state_in=state_in)
+        pd = tree_map(lambda x: x[:, 0], pd)
+        vpred = self.value_head.denormalize(vpred)[:, 0]
+        state_emb = state_emb[:, 0]
+        return pd, vpred, state_out, state_emb
 
     @th.no_grad()
     def act(self, obs, first, state_in, stochastic: bool = True, taken_action=None, return_pd=False):
-        # We need to add a fictitious time dimension everywhere
-        obs = tree_map(lambda x: x.unsqueeze(1), obs)
-        first = first.unsqueeze(1)
-
-        (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)
+        pd, vpred, state_out, embedding = self.take_step(obs, first, state_in)
 
         if taken_action is None:
             ac = self.pi_head.sample(pd, deterministic=not stochastic)
         else:
-            ac = tree_map(lambda x: x.unsqueeze(1), taken_action)
+            ac = taken_action
         log_prob = self.pi_head.logprob(ac, pd)
         assert not th.isnan(log_prob).any()
 
         # After unsqueezing, squeeze back to remove fictitious time dimension
-        result = {"log_prob": log_prob[:, 0], "vpred": self.value_head.denormalize(vpred)[:, 0]}
+        result = {"log_prob": log_prob, "vpred": vpred, "hidden": state_out, "embedding": embedding}
         if return_pd:
-            result["pd"] = tree_map(lambda x: x[:, 0], pd)
-        ac = tree_map(lambda x: x[:, 0], ac)
+            result["pd"] = pd
 
         return ac, state_out, result
 
     @th.no_grad()
     def v(self, obs, first, state_in):
         """Predict value for a given mdp observation"""
-        obs = tree_map(lambda x: x.unsqueeze(1), obs)
-        first = first.unsqueeze(1)
-
-        (pd, vpred, _), state_out = self(obs=obs, first=first, state_in=state_in)
-
-        # After unsqueezing, squeeze back
-        return self.value_head.denormalize(vpred)[:, 0]
+        pd, vpred, state_out, state_emb = self.take_step(obs, first, state_in)
+        return vpred

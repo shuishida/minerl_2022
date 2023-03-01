@@ -1,8 +1,12 @@
-# NeurIPS 2022: MineRL BASALT Behavioural Cloning Baseline
+# NeuRIPS 2022: MineRL BASALT Challenge submission
 
-[![Discord](https://img.shields.io/discord/565639094860775436.svg)](https://discord.gg/BT9uegr)
+Team Voggite: Shu Ishida, João F. Henriques (Visual Geometry Group, University of Oxford)
 
-This repository contains a behavioural cloning baseline solution for the MineRL BASALT 2022 Competition ("basalt" track)! This solution fine-tunes the "width-x1" models of OpenAI VPT for more sample-efficient training.
+Adapted from [NeurIPS 2022: MineRL BASALT Behavioural Cloning Baseline](https://github.com/minerllabs/basalt-2022-behavioural-cloning-baseline).
+
+## About
+
+This repository contains our team solution for the MineRL BASALT 2022 Competition ("basalt" track)! This solution fine-tunes the "width-x1" models of OpenAI VPT for more sample-efficient training.
 
 You can find the "intro" track baseline solution [here](https://github.com/minerllabs/basalt-2022-intro-track-baseline).
 
@@ -82,3 +86,35 @@ Change `FindCave` to other tasks to run for different tasks.
 **Note:** This repository is *not* submittable as-is. You first need to train the models, add them to the git repository and then submit to AICrowd.
 
 To submit this baseline agent follow the [submission instructions](https://github.com/minerllabs/basalt_2022_competition_submission_template/), but use this repo instead of the starter kit repo.
+
+## How to submit!
+
+To make a submission, you will have to create a private repository on [https://gitlab.aicrowd.com/](https://gitlab.aicrowd.com/).
+
+You will have to add your SSH Keys to your GitLab account by following the instructions [here](https://docs.gitlab.com/ee/user/ssh.html).
+If you do not have SSH Keys, you will first need to [generate one](https://docs.gitlab.com/ee/user/ssh.html#generate-an-ssh-key-pair).
+
+Then you can create a submission by making a _tag push_ to your repository on [https://gitlab.aicrowd.com/](https://gitlab.aicrowd.com/).
+**Any tag push (where the tag name begins with "submission-") to your private repository is considered as a submission**
+Then you can add the correct git remote, and finally submit by doing:
+
+```
+cd minerl_basalt_2022
+# Add AIcrowd git remote endpoint
+git remote add aicrowd git@gitlab.aicrowd.com:c16192/minerl_basalt_2022.git
+git push aicrowd main
+
+# Create a tag for your submission and push
+git tag -am "submission-v0.1" submission-v0.1
+git push aicrowd submission-v0.1
+
+# Note : If the contents of your repository (latest commit hash) do not change,
+# then pushing a new tag will **not** trigger a new evaluation.
+```
+
+You now should be able to see the details of your submission at: `https://gitlab.aicrowd.com/<YOUR_AICROWD_USER_NAME>/basalt_2022_competition_submission_template/issues/`
+
+
+# Large File System
+[How to upload large files (size) to your submission ](https://discourse.aicrowd.com/t/how-to-upload-large-files-size-to-your-submission/2304)
+

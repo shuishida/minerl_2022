@@ -1,0 +1,52 @@
+agent:
+  name: 'BC'
+  n_options: 16
+  epsilon_train: 0.05
+  epsilon_eval: 0.01
+  model: "foundation-model-1x.model"
+  weights: "foundation-model-1x.weights"
+  imitation: True
+
+model:
+  gamma: 0.99
+  sample_length: 15
+  in_state_dim: 1024
+  latent:
+    state_dim: 1024
+    activation:
+      name: "identity"
+      resolution: 16
+  idm_mlp:
+    hidden: [1024]
+  v_mlp:
+    hidden: [512, 256]
+  v_loss:
+    offset: 0.0
+    scale: 0.1
+  weights:
+    nll: 10.0
+    kl: 0.1
+    ent: 0.0
+    diverse: 0.0
+    done: 10.0
+  done_thresh: 0.9
+
+buffer:
+  max_episodes: 1000
+  cache_size: 1000
+  sample_length: 15
+
+setup:
+  n_envs: 10
+  train_rollout_ratio: 10
+  steps_per_epoch: 1000
+  n_eval_episodes: 10
+  prefill: 5000
+  batch_size: 32
+  n_workers: 64
+  lr: 0.001
+  log_dir: "logs/"
+  data_dir: "train/preprocess/"
+#  manual_seed: 1654
+  time_limit: 216000  # 1 hour of game play
+  clear: True
